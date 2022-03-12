@@ -1,6 +1,7 @@
-import { Server, NotFoundError, Controller, Params, Body } from "speedily-js";
+import { Server, NotFoundError, Controller, Context } from "speedily-js";
 import { Database } from "sqlite3";
 import DatabaseQuery from "./db.util";
+import { CreateProductDto } from "./dtos/create-product.dto";
 
 interface Product {
   id: number;
@@ -27,14 +28,14 @@ interface Product {
   const getProduct = _getProduct.bind(databaseQuery);
   const newProduct = _newProduct.bind(databaseQuery);
   const updateProduct = _updateProduct.bind(databaseQuery);
-  const deletePRoduct = _deleteProduct.bind(databaseQuery);
+  const deleteProduct = _deleteProduct.bind(databaseQuery);
 
   const productController = new Controller("/products")
     .get("/", () => getProducts())
-    .get("/:id", (param) => getProduct(+param.id))
-    .post("/", (_param, body) => newProduct(body as Product))
-    .put("/:id", (param, body) => updateProduct(+param.id, body as Product))
-    .delete("/:id", (param) => deletePRoduct(+param.id));
+    .get("/:id", getProduct)
+    .post("/", newProduct, { bodyValidator: CreateProductDto })
+    .put("/:id", updateProduct)
+    .delete("/:id", deleteProduct);
 
   server.setControllers([productController]);
 
@@ -55,7 +56,11 @@ function _getProducts(this: DatabaseQuery): Promise<Product[]> {
   return this.queryAll<Product>(`SELECT * FROM PRODUCTS`);
 }
 
-async function _getProduct(this: DatabaseQuery, id: number): Promise<Product> {
+async function _getProduct(
+  this: DatabaseQuery,
+  context: Context
+): Promise<Product> {
+  const id = context.params.getOrFail<number>("id");
   const result = await this.get<Product>(
     `SELECT * FROM PRODUCTS WHERE id = ?`,
     [id.toString()]
@@ -70,14 +75,15 @@ async function _getProduct(this: DatabaseQuery, id: number): Promise<Product> {
 
 async function _newProduct(
   this: DatabaseQuery,
-  body: Product
+  context: Context
 ): Promise<string> {
+  const dto = context.body.get<CreateProductDto>();
   const insertId = await this.run(
     "INSERT INTO products (name, description, type, created_at, updated_at) VALUES(?, ?, ?, ?, ?)",
     [
-      body.name,
-      body.description,
-      body.type,
+      dto.name,
+      dto.description,
+      dto.type,
       new Date().toISOString(),
       new Date().toISOString(),
     ]
@@ -88,9 +94,10 @@ async function _newProduct(
 
 async function _updateProduct(
   this: DatabaseQuery,
-  id: number,
-  dto: Product
+  context: Context
 ): Promise<string> {
+  const dto = context.body.get<Product>();
+  const id = context.params.getOrFail<number>("id");
   const product = await this.get(`SELECT * FROM products WHERE id = ?`, [
     id.toString(),
   ]).catch(() => undefined);
@@ -106,8 +113,9 @@ async function _updateProduct(
 }
 async function _deleteProduct(
   this: DatabaseQuery,
-  id: number
+  context: Context
 ): Promise<string> {
+  const id = context.params.getOrFail<number>("id");
   const product = await this.get(`SELECT * FROM products WHERE id = ?`, [
     id.toString(),
   ]).catch(() => undefined);
